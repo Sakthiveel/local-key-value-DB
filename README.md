@@ -4,7 +4,7 @@
 To run this project, follow these steps:
 1. Clone the repository to your local machine.
 2. Install all dependencies using `go mod tidy`
-3. check `main.go` to create an db instance and run  `go run .`
+3. Check `main.go` to create an db instance and run  `go run .`
 4. Run the test functions individually  `go test -run TestFuncName` Please check `db_test.go`
 5. Run all test functions `go test .`
 
