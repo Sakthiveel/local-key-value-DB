@@ -1,5 +1,5 @@
 # Limitation
-    Currenrly only works with linux and mac os as there are Posix based os's . I tested in ubuntu 22
+   Currenly only works with linux alone . I have tested in ubuntu 22 . Mostly should also work with Mac Os as it's also Unix based.
 # How to Run It
 
 To run this project, follow these steps:
@@ -38,6 +38,8 @@ I am completely new to Go and primarily a JavaScript developer, so working on th
 2. **File Writing Optimization**: Currently, every operation modifies the in-memory data structure and overwrites the file with the updated content. A potential improvement is to switch to using a binary file format, which would allow appending new entries instead of overwriting the file every time. While this would help improve performance and reduce file I/O overhead, I am not yet familiar with binary file formats, so further research is required before implementing this change.
 
 3. **Update Operation**: This can be implmented easily.
+
+4. **Support for Windows**: Currenlty the file locking & releasing flow has to be handled for windows . That's the only part necessary to make it work .
    
 
 # Note
