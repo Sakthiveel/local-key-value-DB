@@ -67,7 +67,7 @@ func GenerateRandomKey() string {
 	return result.String()
 }
 
-func BytesToKiloBytes(sizeInBytes int) float64 {
+func BytesToKB(sizeInBytes int) float64 {
 	return float64(sizeInBytes) / 1024.0
 }
 

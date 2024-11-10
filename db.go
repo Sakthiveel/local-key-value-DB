@@ -165,7 +165,7 @@ func (db *DB[T]) batchCreate(batchData map[string]DbData[T]) error {
 	if jsonErr != nil {
 		return jsonErr
 	}
-	jsonBatchedDataSizeKb := BytesToKiloBytes(len(jsonBatchedData))
+	jsonBatchedDataSizeKb := BytesToKB(len(jsonBatchedData))
 	isSpaceAvailable, fileSize, spaceErr := db.checkAvailableSpace(jsonBatchedDataSizeKb)
 	if spaceErr != nil {
 		return spaceErr
@@ -272,10 +272,10 @@ func (db *DB[T]) isValidJson(data DbData[T]) (float64, error) {
 		return 0, fmt.Errorf("Failed to convert map to JSON: %w", err)
 	}
 	// fmt.Printf("Size in kilobytes: %d\n", len(jsonData))
-	// fmt.Printf("Size in kilobytes: %.2f KB\n", BytesToKiloBytes(len(jsonData)))
+	// fmt.Printf("Size in kilobytes: %.2f KB\n", BytesToKB(len(jsonData)))
 	// fmt.Printf("Entry Value: %+v\n", data)
-	// fmt.Printf("Size in kilobytes: %.2f KB\n", BytesToKiloBytes(len(jsonData)))
-	jsonSize := BytesToKiloBytes(len(jsonData))
+	// fmt.Printf("Size in kilobytes: %.2f KB\n", BytesToKB(len(jsonData)))
+	jsonSize := BytesToKB(len(jsonData))
 	if jsonSize > EntrySizeLimitMB*1024 {
 		return jsonSize, fmt.Errorf("JSON size exceeds the 16 KB limit")
 	}
