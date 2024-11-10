@@ -3,9 +3,10 @@
 
 To run this project, follow these steps:
 1. Clone the repository to your local machine.
-2. Install all dependencies using `go mod tidy`.
-3. Run the main Go file using `go run main.go`.
-4. Ensure that your database (if required) is set up before running the application.
+2. Install all dependencies using `go mod tidy`
+3. check `main.go` to create an db instance and run  `go run .`
+4. Run the test functions individually  `go test -run TestFuncName` Please check `db_test.go`
+5. Run all test functions `go test .`
 
 # Design
 
@@ -37,10 +38,5 @@ I am completely new to Go and primarily a JavaScript developer, so working on th
 
 # Note
    
-   It aldread took me more than 5 hours to complete the project to this level (still writing the readme section). Any kind of feedback is very appreciated . Thank you for taking time to look into this project.
-
-# Resume Link
-
-[Click here to view my resume](#)
-
+   It already took me more 5 hours to complete the project to this level (still writing the readme section). Any kind of feedback is very appreciated . Thank you for taking time to look into this project.
 
