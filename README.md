@@ -1,4 +1,5 @@
-
+# Limitation
+    Currenrly only works with linux and mac os as there are Posix based os's . I tested in ubuntu 22
 # How to Run It
 
 To run this project, follow these steps:
