@@ -288,8 +288,8 @@ func (db *DB[T]) checkAvailableSpace(entrySizeKB float64) (bool, float64, error)
 	}
 	// fmt.Printf("File Size Current :%.2f mb\n", kbToMb(FileSizekB))
 	if FileSizekB+entrySizeKB > StorageLimitMB*1024 {
-		return false, FileSizekB, nil // Not enough space
+		return false, FileSizekB, nil
 	}
 
-	return true, FileSizekB, nil // Enough space available
+	return true, FileSizekB, nil
 }
