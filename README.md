@@ -33,7 +33,7 @@ I am completely new to Go and primarily a JavaScript developer, so working on th
 
 # Improvements
 
-1. **Seperate Go Channel**: Currently I am using only one Go channel for processing every db operation. But we can extend  by creating seperate Go Channels for different operation type , of course will need to make sure about synchronization .Thus we can increase the overall system throughput.
+1. **Seperate Go Channels**: Currently I am using only one Go channel for processing every db operation. But we can extend  by creating seperate Go Channels for different operation type , of course will need to make sure about synchronization .Thus we can increase the overall system throughput.
 
 2. **File Writing Optimization**: Currently, every operation modifies the in-memory data structure and overwrites the file with the updated content. A potential improvement is to switch to using a binary file format, which would allow appending new entries instead of overwriting the file every time. While this would help improve performance and reduce file I/O overhead, I am not yet familiar with binary file formats, so further research is required before implementing this change.
 
