@@ -20,7 +20,7 @@ To run this project, follow these steps:
 
 This project has evolved through several iterations:
 
-- **Initial Development**: The main focus in the beginning was to build the basic functionalities, such as setting up the in-memory data structure and implementing essential CRUD operations.
+- **Initial Development**: The main focus in the beginning was to build the basic functionalities, such as setting up the in-memory data structure and implementing essential CRD operations.
   
 - **Testing for Robustness**: After completing the basic operations, I added concurrency testing and stress testing to ensure that the system could handle multiple requests efficiently and maintain stability under high load.
 
@@ -34,7 +34,10 @@ I am completely new to Go and primarily a JavaScript developer, so working on th
 
 1. **Seperate Go Channel**: Currently I am using only one Go channel for processing every db operation. But we can extend  by creating seperate Go Channels for different operation type , of course will need to make sure about synchronization .Thus we can increase the overall system throughput.
 
-1. **File Writing Optimization**: Currently, every operation modifies the in-memory data structure and overwrites the file with the updated content. A potential improvement is to switch to using a binary file format, which would allow appending new entries instead of overwriting the file every time. While this would help improve performance and reduce file I/O overhead, I am not yet familiar with binary file formats, so further research is required before implementing this change.   
+2. **File Writing Optimization**: Currently, every operation modifies the in-memory data structure and overwrites the file with the updated content. A potential improvement is to switch to using a binary file format, which would allow appending new entries instead of overwriting the file every time. While this would help improve performance and reduce file I/O overhead, I am not yet familiar with binary file formats, so further research is required before implementing this change.
+
+3. **Update Operation**: This can be implmented easily.
+   
 
 # Note
    
