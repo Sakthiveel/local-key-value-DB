@@ -10,7 +10,7 @@ import (
 )
 
 type LocalStorage[T any] struct {
-	filePath string // todo: change to fileName
+	filePath string
 	lockFile *os.File
 }
 
@@ -25,7 +25,7 @@ func NewLocalStorage[T any](fileName string, dir string, dataToLoad *map[string]
 	if fileName == "" {
 		fileName = "default_file.json"
 	}
-	if !IsAlphanumeric(fileName) { // todo: temporary check , need to be improved , exclude os reserved keyword
+	if !IsAlphanumeric(fileName) { // todo: temporary check , exclude os reserved keyword
 		return nil, errors.New("INVALID FILE NAME")
 	}
 	filePath := filepath.Join(dir, fileName+".json")
@@ -44,7 +44,7 @@ func NewLocalStorage[T any](fileName string, dir string, dataToLoad *map[string]
 	}
 	// Acquire lock immediately when creating database
 	if err := localStorage.acquireLock(); err != nil {
-		return nil, fmt.Errorf("Failed to acquire lock: %w", err)
+		return nil, fmt.Errorf("FAILED TO ACQUIRE LOCK: %w", err)
 	}
 	// or else throw error
 	return localStorage, nil
@@ -56,10 +56,10 @@ func (ls *LocalStorage[T]) createFile() error {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		err := os.MkdirAll(dir, os.ModePerm)
 		if err != nil {
-			return fmt.Errorf("failed to create directory: %w", err)
+			return fmt.Errorf("FAILED TO CREATE DIRECTORY: %w", err)
 		}
 	} else if err != nil {
-		return fmt.Errorf("failed to check directory: %w", err)
+		return fmt.Errorf("FAILED TO CHECK DIRECTORY: %w", err)
 	}
 
 	// fmt.Println("Creating file at:", ls.filePath)
@@ -77,7 +77,7 @@ func (ls *LocalStorage[T]) fileExists(dir string) (bool, error) {
 	_, dirErr := os.Stat(dir)
 
 	if os.IsNotExist(dirErr) {
-		return false, fmt.Errorf("Directory not exist")
+		return false, fmt.Errorf("DIRECTORY NOT EXIST")
 	}
 
 	_, err := os.Stat(ls.filePath)
@@ -89,7 +89,7 @@ func (ls *LocalStorage[T]) fileExists(dir string) (bool, error) {
 		return false, nil
 	}
 
-	return false, fmt.Errorf("Failed to check if file exists: %w", err)
+	return false, fmt.Errorf("FAILED TO CHECK IF FILE EXISTS: %w", err)
 }
 
 func (ls *LocalStorage[T]) Sync(data map[string]DbData[T]) error {
@@ -127,7 +127,7 @@ func (ls *LocalStorage[T]) acquireLock() error {
 		ls.lockFile.Close()
 		ls.lockFile = nil
 		if err == syscall.EWOULDBLOCK {
-			return fmt.Errorf("file is locked by another process")
+			return fmt.Errorf("FILE IS LOCKED BY ANOTHER PROCESS")
 		}
 		return err
 	}
@@ -142,12 +142,12 @@ func (ls *LocalStorage[T]) releaseLock() error {
 
 	err := syscall.Flock(int(ls.lockFile.Fd()), syscall.LOCK_UN)
 	if err != nil {
-		return fmt.Errorf("failed to release lock: %w", err)
+		return fmt.Errorf("FAILED TO RELEASE LOCK: %w", err)
 	}
 
 	err = ls.lockFile.Close()
 	if err != nil {
-		return fmt.Errorf("failed to close lock file: %w", err)
+		return fmt.Errorf("FAILED TO CLOSE LOCK FILE: %w", err)
 	}
 
 	ls.lockFile = nil
@@ -157,7 +157,7 @@ func (ls *LocalStorage[T]) releaseLock() error {
 func (ls *LocalStorage[T]) getFileSizeInKB() (float64, error) {
 	fileInfo, err := os.Stat(ls.filePath)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get file info: %w", err)
+		return 0, fmt.Errorf("FAILED TO GET FILE INFO: %w", err)
 	}
 
 	fileSizeBytes := fileInfo.Size()

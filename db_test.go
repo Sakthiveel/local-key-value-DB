@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var GoRoutinesCount = 100
+var MaxTestEntries = 500
 
 func TestFileNameValidation(t *testing.T) {
 	testFiles := []string{
@@ -51,7 +51,7 @@ func TestAllowOnlyOneClientConnection(t *testing.T) {
 	}
 	key := "key-1" + GenerateRandomKey()
 	_, err_2 := NewDB[TestVal](fileName, "")
-	require.ErrorContains(t, err_2, "Failed to acquire lock")
+	require.ErrorContains(t, err_2, "FAILED TO ACQUIRE LOCK")
 	dbIns_1.Close()
 
 	dbsIns_3, err_3 := NewDB[TestVal](fileName, "")
@@ -114,8 +114,7 @@ func TestBatchCreation(t *testing.T) {
 		panic(err)
 	}
 	dataMap := make(map[string]DbData[TestVal])
-	itemsCount := 4000 //
-	for i := 1; i <= itemsCount; i++ {
+	for i := 1; i <= MaxTestEntries; i++ {
 		key := GenerateRandomKey() + GenerateRandomKey() + GenerateRandomKey()
 		value := fmt.Sprintf("Value %d", i)
 		dataMap[key] = TestEntry(value, i, "")
@@ -176,7 +175,7 @@ func TestConcurrency(t *testing.T) {
 	}
 	startTime_1 := time.Now()
 	var wg sync.WaitGroup
-	for i := 1; i <= GoRoutinesCount; i++ {
+	for i := 1; i <= MaxTestEntries; i++ {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
@@ -192,7 +191,7 @@ func TestConcurrency(t *testing.T) {
 	wg.Wait()
 	timeTaken_1 := time.Since(startTime_1)
 	db.Close()
-	fmt.Printf("Time taken to perform %v concurrent operation to create entries is %s", GoRoutinesCount, timeTaken_1)
+	fmt.Printf("Time taken to perform %v concurrent operation to create entries is %s", MaxTestEntries, timeTaken_1)
 }
 
 func TestStressCapacity(t *testing.T) {
@@ -201,7 +200,7 @@ func TestStressCapacity(t *testing.T) {
 		panic(err)
 	}
 	var wg sync.WaitGroup
-	for i := 1; i <= 10; i++ {
+	for i := 1; i <= MaxTestEntries; i++ {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
@@ -215,7 +214,7 @@ func TestStressCapacity(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	for i := 1; i <= 10; i++ {
+	for i := 1; i <= MaxTestEntries; i++ {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
@@ -228,5 +227,5 @@ func TestStressCapacity(t *testing.T) {
 	}
 	wg.Wait()
 	db.Close()
-	t.Logf("Totally %v go routines has been used", 2*GoRoutinesCount)
+	t.Logf("Totally %v go routines has been used", 2*MaxTestEntries)
 }

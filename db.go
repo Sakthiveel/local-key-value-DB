@@ -8,11 +8,15 @@ import (
 	"time"
 )
 
-const BatchLimit int = 20000000000
+// A batch limit of 100-500 entries ensures efficient performance without overloading the system.
+// This range strikes a balance between throughput and manageable data size (1.6 MB to 8 MB), as large batch sizes are uncommon in typical use cases.
+// 100 entries * 16 KB = 1.6 MB
+// 500 entries * 16 KB = 8 MB
+const BatchLimit int = 500
 
 const EntrySizeLimitMB = 16
 
-const StorageLimitMB = 5
+const StorageLimitMB = 1024
 
 type operationResult[T any] struct {
 	err   error
@@ -57,34 +61,20 @@ func (db *DB[T]) worker() {
 		switch op.action {
 		case "create":
 			err := db.create(op.key, op.value)
-			if err != nil {
-				result = operationResult[T]{err: err}
-			} else {
-				result = operationResult[T]{err: nil}
-			}
+			result = operationResult[T]{err: err}
+
 		case "batchCreate":
 			err := db.batchCreate(op.batchData)
-			if err != nil {
-				result = operationResult[T]{err: err}
-			} else {
-				result = operationResult[T]{err: nil}
-			}
+			result = operationResult[T]{err: err}
 		case "delete":
 			_, err := db.delete(op.key)
-			if err != nil {
-				result = operationResult[T]{err: err}
-			} else {
-				result = operationResult[T]{err: nil}
-			}
+			result = operationResult[T]{err: err}
 		case "read":
 			value, err := db.read(op.key)
-			if err != nil {
-				result = operationResult[T]{err: err}
-			} else {
-				result = operationResult[T]{err: nil, value: value}
-			}
+			result = operationResult[T]{err: err, value: value}
+
 		default:
-			result = operationResult[T]{err: errors.New("unknown operation")}
+			result = operationResult[T]{err: errors.New("UNKNOWN OPERATION")}
 		}
 
 		op.response <- result
@@ -103,6 +93,7 @@ func (db *DB[T]) Create(key string, value DbData[T]) operationResult[T] {
 	db.opsChannel <- op
 	return <-op.response
 }
+
 func (db *DB[T]) BatchCreate(batchData map[string]DbData[T]) operationResult[T] {
 	op := operation[T]{
 		action:    "batchCreate",
@@ -115,8 +106,8 @@ func (db *DB[T]) BatchCreate(batchData map[string]DbData[T]) operationResult[T] 
 
 }
 func (db *DB[T]) create(key string, value DbData[T]) error {
-	if len(key) > 64 {
-		return errors.New("KEY EXCEEDS THE MAXIMUM LENGTH OF 64 CHARACTERS")
+	if len(key) > 32 {
+		return errors.New("KEY EXCEEDS THE MAXIMUM LENGTH OF 32 CHARACTERS")
 	}
 
 	if _, exists := db.data[key]; exists {
@@ -145,12 +136,16 @@ func (db *DB[T]) create(key string, value DbData[T]) error {
 }
 
 func (db *DB[T]) batchCreate(batchData map[string]DbData[T]) error {
-	if len(batchData) >= BatchLimit {
+	// A batch limit of 100-500 entries ensures efficient performance without overloading the system.
+	// This range strikes a balance between throughput and manageable data size (1.6 MB to 8 MB), as large batch sizes are uncommon in typical use cases.
+	// 100 entries * 16 KB = 1.6 MB
+	// 500 entries * 16 KB = 8 MB
+	if len(batchData) > BatchLimit {
 		return errors.New("BATCHDATA IS LARGE")
 	}
 	for key := range batchData {
-		if len(key) > 64 {
-			return errors.New("KEY EXCEEDS THE MAXIMUM LENGTH OF 64 CHARACTERS")
+		if len(key) > 32 {
+			return errors.New("KEY EXCEEDS THE MAXIMUM LENGTH OF 32 CHARACTERS")
 		}
 
 		if _, exists := db.data[key]; exists {
@@ -203,15 +198,14 @@ func (db *DB[T]) Delete(key string) operationResult[T] {
 func (db *DB[T]) delete(key string) (bool, error) {
 	if _, exists := db.data[key]; exists {
 		isExpired := db.IsExpired(key)
+		if isExpired {
+			return false, errors.New("ENTRY EXPIRED")
+		}
 		delete(db.data, key)
 		err := db.localStorage.Sync(db.data)
 		if err != nil {
 			db.localStorage.Load(&db.data) // rollback , reloading file in to memory
 			return false, err
-		}
-
-		if isExpired {
-			return false, errors.New("KEY EXPIRED")
 		}
 
 		return true, nil
@@ -233,9 +227,6 @@ func (db *DB[T]) Read(key string) operationResult[T] {
 func (db *DB[T]) read(key string) (DbData[T], error) {
 	if valueObj, exists := db.data[key]; exists {
 		if db.IsExpired(key) {
-			delete(db.data, key)
-			db.localStorage.Sync(db.data)
-
 			return DbData[T]{}, errors.New("ENTRY EXPIRED")
 		}
 		return valueObj, nil
@@ -269,7 +260,7 @@ func (db *DB[T]) PrintValue(key string) {
 func (db *DB[T]) isValidJson(data DbData[T]) (float64, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
-		return 0, fmt.Errorf("Failed to convert map to JSON: %w", err)
+		return 0, fmt.Errorf("FAILED TO CONVERT MAP TO JSON: %w", err)
 	}
 	// fmt.Printf("Size in kilobytes: %d\n", len(jsonData))
 	// fmt.Printf("Size in kilobytes: %.2f KB\n", BytesToKB(len(jsonData)))
@@ -284,7 +275,7 @@ func (db *DB[T]) isValidJson(data DbData[T]) (float64, error) {
 func (db *DB[T]) checkAvailableSpace(entrySizeKB float64) (bool, float64, error) {
 	FileSizekB, err := db.localStorage.getFileSizeInKB()
 	if err != nil {
-		return false, 0, fmt.Errorf("failed to get current file size: %w", err)
+		return false, 0, fmt.Errorf("FAILED TO GET CURRENT FILE SIZE: %w", err)
 	}
 	// fmt.Printf("File Size Current :%.2f mb\n", kbToMb(FileSizekB))
 	if FileSizekB+entrySizeKB > StorageLimitMB*1024 {
