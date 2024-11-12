@@ -44,5 +44,5 @@ I am completely new to Go and primarily a JavaScript developer, so working on th
 
 # Note
    
-   It took 5 hours to complete the project to this level (still writing the readme section). Any kind of feedback is very appreciated . Thank you for taking time to look into this project.
+   It took 5 hours to complete the project to this level. Any kind of feedback is very appreciated . Thank you for taking time to look into this project.
 
