@@ -72,6 +72,7 @@ func TestBasicCrdOperation(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
+	defer db.Close()
 	key_1 := "one" + GenerateRandomKey()
 	key_2 := "two" + GenerateRandomKey()
 	entry_1 := TestEntry("value_1", 12, "")
@@ -87,7 +88,6 @@ func TestBasicCrdOperation(t *testing.T) {
 
 	delRes := db.Delete(key_1)
 	require.Equal(t, nil, delRes.err)
-	db.Close()
 }
 
 func TestTTLChecking(t *testing.T) {
@@ -257,9 +257,9 @@ func TestConcurrentCreateRead(t *testing.T) {
 	wg.Wait()
 
 	totalDuration := time.Since(startCreateRead)
-	throughput := float64(numOps*2) / totalDuration.Seconds() // both reads and writes during concurrency
+	// throughput := float64(numOps*2) / totalDuration.Seconds() // both reads and writes during concurrency
 
-	fmt.Printf("Total Throughput: %.2f ops/sec\n", throughput)
+	// fmt.Printf("Total Throughput: %.2f ops/sec\n", throughput)
 
 	// Ensure all data is consistent after concurrency
 	for i := 0; i < numOps; i++ { // Check all entries created both before and during concurrency

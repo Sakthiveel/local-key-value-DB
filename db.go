@@ -80,6 +80,17 @@ func (db *DB[T]) Read(key string) operationResult[T] {
 	return <-op.response
 }
 
+func (db *DB[T]) BatchCreate(batchData map[string]DbData[T]) operationResult[T] {
+	op := operation[T]{
+		action:    "batchCreate",
+		batchData: batchData,
+		response:  make(chan operationResult[T], 1),
+	}
+
+	db.writeOps <- op
+	return <-op.response
+}
+
 func (db *DB[T]) writeWorker() {
 	for op := range db.writeOps {
 		var result operationResult[T]
@@ -90,12 +101,20 @@ func (db *DB[T]) writeWorker() {
 		case "create":
 			err := db.create(op.key, op.value)
 			result = operationResult[T]{err: err}
-			// ... other write operations
 
 		case "batchCreate":
 			err := db.batchCreate(op.batchData)
 			result = operationResult[T]{err: err}
+
+		case "delete":
+			_, err := db.delete(op.key)
+			result = operationResult[T]{err: err}
+
+		default:
+			err := fmt.Errorf("UNKNOWN OPERATION: %s", op.action)
+			result = operationResult[T]{err: err}
 		}
+
 		db.rwLock.Unlock()
 
 		op.response <- result
@@ -112,7 +131,9 @@ func (db *DB[T]) readWorker() {
 		case "read":
 			value, err := db.read(op.key)
 			result = operationResult[T]{err: err, value: value}
-			// ... other read operations
+		default:
+			err := fmt.Errorf("UNKNOWN OPERATION: %s", op.action)
+			result = operationResult[T]{err: err}
 		}
 		db.rwLock.RUnlock()
 
@@ -121,16 +142,6 @@ func (db *DB[T]) readWorker() {
 	}
 }
 
-func (db *DB[T]) BatchCreate(batchData map[string]DbData[T]) operationResult[T] {
-	op := operation[T]{
-		action:    "batchCreate",
-		batchData: batchData,
-		response:  make(chan operationResult[T], 1),
-	}
-
-	db.writeOps <- op
-	return <-op.response
-}
 func (db *DB[T]) create(key string, value DbData[T]) error {
 	if len(key) > 32 {
 		return errors.New("KEY EXCEEDS THE MAXIMUM LENGTH OF 32 CHARACTERS")
@@ -148,7 +159,7 @@ func (db *DB[T]) create(key string, value DbData[T]) error {
 		return spaceErr
 	}
 	if !isSpaceAvailable {
-		return errors.New("Not Avaiable Space to make the Entry")
+		return errors.New("NOT AVAIABLE SPACE TO MAKE THE ENTRY")
 	}
 	db.data[key] = value
 	err := db.localStorage.Sync(db.data)
