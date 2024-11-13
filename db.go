@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt" // Adjust the import path based on your setup
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -32,7 +33,9 @@ type operation[T any] struct {
 type DB[T any] struct {
 	localStorage *LocalStorage[T]
 	data         map[string]DbData[T]
-	opsChannel   chan operation[T]
+	writeOps     chan operation[T]
+	readOps      chan operation[T]
+	rwLock       sync.RWMutex
 }
 
 func NewDB[T any](fileName string, dir string) (*DB[T], error) {
@@ -44,42 +47,14 @@ func NewDB[T any](fileName string, dir string) (*DB[T], error) {
 	db := &DB[T]{
 		data:         loadedData,
 		localStorage: localStorage,
-		opsChannel:   make(chan operation[T], 100),
+		writeOps:     make(chan operation[T], 100),
+		readOps:      make(chan operation[T], 100),
 	}
 
-	go db.worker()
+	go db.writeWorker()
+	go db.readWorker()
 
 	return db, nil
-}
-
-func (db *DB[T]) worker() {
-	for op := range db.opsChannel {
-
-		var result operationResult[T]
-		println(op.action)
-
-		switch op.action {
-		case "create":
-			err := db.create(op.key, op.value)
-			result = operationResult[T]{err: err}
-
-		case "batchCreate":
-			err := db.batchCreate(op.batchData)
-			result = operationResult[T]{err: err}
-		case "delete":
-			_, err := db.delete(op.key)
-			result = operationResult[T]{err: err}
-		case "read":
-			value, err := db.read(op.key)
-			result = operationResult[T]{err: err, value: value}
-
-		default:
-			result = operationResult[T]{err: errors.New("UNKNOWN OPERATION")}
-		}
-
-		op.response <- result
-		close(op.response)
-	}
 }
 
 func (db *DB[T]) Create(key string, value DbData[T]) operationResult[T] {
@@ -90,8 +65,60 @@ func (db *DB[T]) Create(key string, value DbData[T]) operationResult[T] {
 		response: make(chan operationResult[T], 1),
 	}
 
-	db.opsChannel <- op
+	db.writeOps <- op
 	return <-op.response
+}
+
+func (db *DB[T]) Read(key string) operationResult[T] {
+	op := operation[T]{
+		action:   "read",
+		key:      key,
+		response: make(chan operationResult[T], 1),
+	}
+
+	db.readOps <- op
+	return <-op.response
+}
+
+func (db *DB[T]) writeWorker() {
+	for op := range db.writeOps {
+		var result operationResult[T]
+		fmt.Printf("Opeartion type %s", op.action)
+
+		db.rwLock.Lock()
+		switch op.action {
+		case "create":
+			err := db.create(op.key, op.value)
+			result = operationResult[T]{err: err}
+			// ... other write operations
+
+		case "batchCreate":
+			err := db.batchCreate(op.batchData)
+			result = operationResult[T]{err: err}
+		}
+		db.rwLock.Unlock()
+
+		op.response <- result
+		close(op.response)
+	}
+}
+
+func (db *DB[T]) readWorker() {
+	for op := range db.readOps {
+		var result operationResult[T]
+
+		db.rwLock.RLock()
+		switch op.action {
+		case "read":
+			value, err := db.read(op.key)
+			result = operationResult[T]{err: err, value: value}
+			// ... other read operations
+		}
+		db.rwLock.RUnlock()
+
+		op.response <- result
+		close(op.response)
+	}
 }
 
 func (db *DB[T]) BatchCreate(batchData map[string]DbData[T]) operationResult[T] {
@@ -101,9 +128,8 @@ func (db *DB[T]) BatchCreate(batchData map[string]DbData[T]) operationResult[T] 
 		response:  make(chan operationResult[T], 1),
 	}
 
-	db.opsChannel <- op
+	db.writeOps <- op
 	return <-op.response
-
 }
 func (db *DB[T]) create(key string, value DbData[T]) error {
 	if len(key) > 32 {
@@ -191,7 +217,7 @@ func (db *DB[T]) Delete(key string) operationResult[T] {
 		response: make(chan operationResult[T], 1),
 	}
 
-	db.opsChannel <- op
+	db.writeOps <- op
 	return <-op.response
 }
 
@@ -211,17 +237,6 @@ func (db *DB[T]) delete(key string) (bool, error) {
 		return true, nil
 	}
 	return false, errors.New("KEY NOT FOUND")
-}
-
-func (db *DB[T]) Read(key string) operationResult[T] {
-	op := operation[T]{
-		action:   "read",
-		key:      key,
-		response: make(chan operationResult[T], 1),
-	}
-
-	db.opsChannel <- op
-	return <-op.response
 }
 
 func (db *DB[T]) read(key string) (DbData[T], error) {

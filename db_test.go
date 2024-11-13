@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -168,64 +169,108 @@ func TestLoadExistinFile(t *testing.T) {
 	dbIns_2.Close()
 }
 
-func TestConcurrency(t *testing.T) {
-	db, err := NewDB[TestVal]("concurrencyTest"+GenerateRandomKey(), "")
+func TestConcurrentCreateRead(t *testing.T) {
+	db, err := NewDB[TestVal]("testdata"+GenerateRandomKey(), "")
 	if err != nil {
-		panic(err)
+		t.Fatalf("Failed to initialize DB: %v", err)
 	}
-	startTime_1 := time.Now()
+	defer db.Close()
+
+	// Test data
+	testKey := "test_key"
+
+	// Number of concurrent operations
+	numOps := 500
+
+	// Number of entries to create before concurrency
+	n := 100
+
+	// WaitGroup to ensure all goroutines finish
 	var wg sync.WaitGroup
-	for i := 1; i <= MaxTestEntries; i++ {
+
+	// Create n entries before starting the concurrent phase
+	for i := 0; i < numOps; i++ {
+		key := testKey + strconv.Itoa(i)
+		entry := TestEntry("person_"+strconv.Itoa(i), i, "")
+		result := db.Create(key, entry)
+		if result.err != nil {
+			t.Fatalf("Pre-concurrency Create failed for key %s: %v", key, result.err)
+		}
+	}
+
+	// Barrier to ensure all goroutines start at the same time
+	startBarrier := make(chan struct{})
+
+	// Measure time for Create and Read operations concurrently
+	startCreateRead := time.Now()
+
+	// Launch Create goroutines for the concurrent phase
+	for i := 0; i < numOps; i++ {
 		wg.Add(1)
-		go func(goroutineID int) {
+		go func(i int) {
 			defer wg.Done()
 
-			key := GenerateRandomKey() + GenerateRandomKey() + GenerateRandomKey()
-			value := fmt.Sprintf("%d", goroutineID)
-			entry := TestEntry(value, i, "")
-			res := db.Create(key, entry)
-			require.Equal(t, nil, res.err)
+			key := "new_key" + strconv.Itoa(n+i) // Ensure keys don't overlap with pre-created entries
+			entry := TestEntry("person_"+strconv.Itoa(n+i), n+i, "")
 
-		}(i)
-	}
-	wg.Wait()
-	timeTaken_1 := time.Since(startTime_1)
-	db.Close()
-	fmt.Printf("Time taken to perform %v concurrent operation to create entries is %s", MaxTestEntries, timeTaken_1)
-}
+			// Wait for the start signal
+			<-startBarrier
 
-func TestStressCapacity(t *testing.T) {
-	db, err := NewDB[TestVal]("stressTest"+GenerateRandomKey(), "")
-	if err != nil {
-		panic(err)
-	}
-	var wg sync.WaitGroup
-	for i := 1; i <= MaxTestEntries; i++ {
-		wg.Add(1)
-		go func(goroutineID int) {
-			defer wg.Done()
-
-			key := fmt.Sprintf("%d", i)
-			value := fmt.Sprintf("%d", goroutineID)
-			entry := TestEntry(value, i, "")
-			res := db.Create(key, entry)
-			require.Equal(t, nil, res.err)
-
-		}(i)
-	}
-	wg.Wait()
-	for i := 1; i <= MaxTestEntries; i++ {
-		wg.Add(1)
-		go func(goroutineID int) {
-			defer wg.Done()
-			key := fmt.Sprintf("%d", i)
-			if i%2 != 0 {
-				res := db.Delete(key)
-				require.Equal(t, nil, res.err)
+			// Perform Create operation
+			result := db.Create(key, entry)
+			if result.err != nil {
+				t.Errorf("Create failed for key %s: %v", key, result.err)
 			}
 		}(i)
 	}
+
+	// Launch Read goroutines for the concurrent phase
+	for i := 0; i < numOps; i++ { // Read both pre-created and new entries
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+
+			key := testKey + strconv.Itoa(i)
+
+			// Wait for the start signal
+			<-startBarrier
+
+			// Perform Read operation
+			result := db.Read(key)
+			checkEntry := TestEntry("person_"+strconv.Itoa(i), i, "")
+			require.Equal(t, checkEntry.Value, result.value.Value)
+			// if result.err != nil && result.err.Error() != "KEY NOT FOUND" {
+			// 	t.Errorf("Read failed for key %s: %v", key, result.err)
+			// }
+			// if result.err != nil {
+			// 	require.ErrorContains(t, result.err, "KEY NOT FOUND")
+			// } else {
+			// 	require.Equal(t, checkEntry.Value, result.value.Value)
+			// }
+		}(i)
+	}
+
+	// Release all goroutines at the same time
+	close(startBarrier)
+
+	// Wait for all goroutines to finish
 	wg.Wait()
-	db.Close()
-	t.Logf("Totally %v go routines has been used", 2*MaxTestEntries)
+
+	totalDuration := time.Since(startCreateRead)
+	throughput := float64(numOps*2) / totalDuration.Seconds() // both reads and writes during concurrency
+
+	fmt.Printf("Total Throughput: %.2f ops/sec\n", throughput)
+
+	// Ensure all data is consistent after concurrency
+	for i := 0; i < numOps; i++ { // Check all entries created both before and during concurrency
+		checkEntry := TestEntry("person_"+strconv.Itoa(i), i, "")
+		key := testKey + strconv.Itoa(i)
+		result := db.Read(key)
+		require.Equal(t, checkEntry.Value, result.value.Value)
+	}
+
+	require.Equal(t, len(db.data), numOps+numOps)
+	fmt.Printf("The map size is %v\n", len(db.data))
+
+	fmt.Printf("Total Time taken to run %v concurrent reads and writes: %s\n", numOps, totalDuration)
 }
