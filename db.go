@@ -19,7 +19,7 @@ const EntrySizeLimitMB = 16
 
 const StorageLimitMB = 1024
 
-const cleanpInterval = 2 * time.Second
+const cleanpInterval = time.Minute
 
 type operationResult[T any] struct {
 	err   error
