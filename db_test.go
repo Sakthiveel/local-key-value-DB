@@ -1,10 +1,9 @@
 package main
 
 import (
-	"errors"
 	"fmt"
+	"local-key-value-DB/dbError"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -26,7 +25,7 @@ func TestFileNameValidation(t *testing.T) {
 
 	for _, file := range testFiles {
 		_, err := NewDB[TestVal](file, "")
-		require.ErrorContains(t, err, "INVALID FILE NAME")
+		require.Equal(t, err, dbError.InvalidFileName(""))
 	}
 }
 
@@ -54,7 +53,7 @@ func TestAllowOnlyOneClientConnection(t *testing.T) {
 	}
 	key := "key-1" + GenerateRandomKey()
 	_, err_2 := NewDB[TestVal](fileName, "")
-	require.ErrorContains(t, err_2, "FAILED TO ACQUIRE LOCK")
+	require.ErrorContains(t, err_2, dbError.FailedToAcquireLock("").Error())
 	dbIns_1.Close()
 
 	dbsIns_3, err_3 := NewDB[TestVal](fileName, "")
@@ -86,7 +85,7 @@ func TestBasicCrdOperation(t *testing.T) {
 	require.Equal(t, entry_1.Value, readRes.value.Value)
 
 	res := db.Create(key_1, entry_1)
-	require.Equal(t, errors.New("ENTRY ALREADY EXISTS"), res.err)
+	require.ErrorContains(t, res.err, dbError.EntryAlreadyExists("").Error())
 
 	delRes := db.Delete(key_1)
 	require.Equal(t, nil, delRes.err)
@@ -107,7 +106,7 @@ func TestTTLChecking(t *testing.T) {
 	require.Equal(t, entry, res_2.value)
 	time.Sleep(3 * time.Second)
 	res_3 := db.Read(key)
-	require.Equal(t, res_3.err, errors.New("ENTRY EXPIRED"))
+	require.ErrorContains(t, res_3.err, dbError.EntryExpired("").Error())
 	db.Close()
 }
 
@@ -143,7 +142,7 @@ func TestNotOverwriting(t *testing.T) {
 
 	res := db.create(key, entry_1)
 
-	require.ErrorContains(t, res, "ENTRY ALREADY EXISTS")
+	require.ErrorContains(t, res, dbError.EntryAlreadyExists("").Error())
 
 	db.Close()
 }
@@ -323,7 +322,7 @@ func TestDBClose(t *testing.T) {
 			result := db.Create(key, NewDbData(entry, ""))
 
 			if result.err != nil {
-				if strings.Contains(result.err.Error(), "DATABASE ALREADY CLOSED") {
+				if result.err.Error() == dbError.DBAlreadyClosed("").Error() {
 					failedOps.Add(1)
 				} else {
 					t.Errorf("Unexpected error for key %s: %v", key, result.err)
@@ -359,5 +358,5 @@ func TestDBClose(t *testing.T) {
 
 	// Verify DB is fully closed
 	finalResult := db.Read("1")
-	require.ErrorContains(t, finalResult.err, "DATABASE ALREADY CLOSED")
+	require.ErrorContains(t, finalResult.err, dbError.DBAlreadyClosed("").Error())
 }

@@ -2,8 +2,8 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt" // Adjust the import path based on your setup
+	"local-key-value-DB/dbError"
 	"strconv"
 	"sync"
 	"time"
@@ -72,7 +72,7 @@ func (db *DB[T]) Create(key string, value DbData[T]) operationResult[T] {
 	if db.closed {
 		db.rwLock.RUnlock()
 		println("DB Closed bro")
-		return operationResult[T]{err: errors.New("DATABASE ALREADY CLOSED")}
+		return operationResult[T]{err: dbError.DBAlreadyClosed("")}
 	}
 	db.rwLock.RUnlock()
 	op := operation[T]{
@@ -89,7 +89,7 @@ func (db *DB[T]) Read(key string) operationResult[T] {
 	db.rwLock.RLock()
 	if db.closed {
 		db.rwLock.RUnlock()
-		return operationResult[T]{err: fmt.Errorf("DATABASE ALREADY CLOSED")}
+		return operationResult[T]{err: dbError.DBAlreadyClosed("")}
 	}
 	db.rwLock.RUnlock()
 	op := operation[T]{
@@ -106,7 +106,7 @@ func (db *DB[T]) BatchCreate(batchData map[string]DbData[T]) operationResult[T] 
 	db.rwLock.RLock()
 	if db.closed {
 		db.rwLock.RUnlock()
-		return operationResult[T]{err: fmt.Errorf("DATABASE ALREADY CLOSED")}
+		return operationResult[T]{err: dbError.DBAlreadyClosed("")}
 	}
 	db.rwLock.RUnlock()
 	op := operation[T]{
@@ -136,11 +136,11 @@ func (db *DB[T]) writeWorker() {
 			result = operationResult[T]{err: err}
 
 		case "delete":
-			_, err := db.delete(op.key)
+			err := db.delete(op.key)
 			result = operationResult[T]{err: err}
 
 		default:
-			err := fmt.Errorf("UNKNOWN OPERATION: %s", op.action)
+			err := dbError.UnkownOperation(op.action)
 			result = operationResult[T]{err: err}
 		}
 
@@ -162,7 +162,7 @@ func (db *DB[T]) readWorker() {
 			value, err := db.read(op.key)
 			result = operationResult[T]{err: err, value: value}
 		default:
-			err := fmt.Errorf("UNKNOWN OPERATION: %s", op.action)
+			err := dbError.UnkownOperation(op.action)
 			result = operationResult[T]{err: err}
 		}
 		db.rwLock.RUnlock()
@@ -174,14 +174,14 @@ func (db *DB[T]) readWorker() {
 
 func (db *DB[T]) create(key string, value DbData[T]) error {
 	if len(key) > 32 {
-		return errors.New("KEY EXCEEDS THE MAXIMUM LENGTH OF 32 CHARACTERS")
+		return dbError.KeySizeExceedsLimit(32, "")
 	}
 
 	if _, exists := db.data[key]; exists {
 		if db.IsExpired(key) {
 			db.deleteEntry(key)
 		}
-		return errors.New("ENTRY ALREADY EXISTS")
+		return dbError.EntryAlreadyExists("")
 	}
 	valueSize, valErr := db.isValidJson(db.data[key])
 	if valErr != nil {
@@ -192,7 +192,7 @@ func (db *DB[T]) create(key string, value DbData[T]) error {
 		return spaceErr
 	}
 	if !isSpaceAvailable {
-		return errors.New("NOT AVAIABLE SPACE TO MAKE THE ENTRY")
+		return dbError.NotAvailabeSpace("")
 	}
 	db.data[key] = value
 	err := db.localStorage.Sync(db.data)
@@ -211,18 +211,17 @@ func (db *DB[T]) batchCreate(batchData map[string]DbData[T]) error {
 	// 100 entries * 16 KB = 1.6 MB
 	// 500 entries * 16 KB = 8 MB
 	if len(batchData) > BatchLimit {
-		return errors.New("BATCHDATA IS LARGE")
+		return dbError.BatchLimitCountExceeds("")
 	}
 	for key := range batchData {
 		if len(key) > 32 {
-			return errors.New("KEY EXCEEDS THE MAXIMUM LENGTH OF 32 CHARACTERS")
+			return dbError.KeySizeExceedsLimit(32, "")
 		}
-
 		if _, exists := db.data[key]; exists {
 			if db.IsExpired(key) {
 				db.deleteEntry(key)
 			}
-			return fmt.Errorf("ENTRY ALREADY EXISTS %s", key)
+			return dbError.EntryAlreadyExists(fmt.Sprintf("key : %s", key))
 		}
 		_, valErr := db.isValidJson(batchData[key])
 		if valErr != nil {
@@ -234,12 +233,12 @@ func (db *DB[T]) batchCreate(batchData map[string]DbData[T]) error {
 		return jsonErr
 	}
 	jsonBatchedDataSizeKb := BytesToKB(len(jsonBatchedData))
-	isSpaceAvailable, fileSize, spaceErr := db.checkAvailableSpace(jsonBatchedDataSizeKb)
+	isSpaceAvailable, _, spaceErr := db.checkAvailableSpace(jsonBatchedDataSizeKb)
 	if spaceErr != nil {
 		return spaceErr
 	}
 	if !isSpaceAvailable {
-		return fmt.Errorf("Batch Size exceeds storage limit , Batch Operation Size = %.2f mb  , Avaiable Storage Space = %.2fmb", kbToMb(jsonBatchedDataSizeKb), StorageLimitMB-kbToMb(fileSize))
+		return dbError.BatchSizeLimitCrossed("")
 	}
 	// fmt.Printf("Batch Operation :%.2f mb, %.2f\n", kbToMb(jsonBatchedDataSizeKb), jsonBatchedDataSizeKb)
 	for key, value := range batchData {
@@ -256,12 +255,11 @@ func (db *DB[T]) batchCreate(batchData map[string]DbData[T]) error {
 	// fmt.Printf("After writing file size :%.2f mb", kbToMb(val))
 	return nil
 }
-
 func (db *DB[T]) Delete(key string) operationResult[T] {
 	db.rwLock.RLock()
 	if db.closed {
 		db.rwLock.RUnlock()
-		return operationResult[T]{err: fmt.Errorf("DATABASE ALREADY CLOSED")}
+		return operationResult[T]{err: dbError.DatabaseAlreadyClose("")}
 	}
 	db.rwLock.RUnlock()
 	op := operation[T]{
@@ -281,11 +279,11 @@ func (db *DB[T]) delete(key string) error {
 		if err != nil && !isExpired {
 			return err
 		} else if isExpired {
-			return errors.New("ENTRY EXPIRED")
+			return dbError.EntryExpired("")
 		}
 		return err
 	}
-	return errors.New("KEY NOT FOUND")
+	return dbError.KeyNotFound("")
 }
 
 func (db *DB[T]) read(key string) (DbData[T], error) {
@@ -293,11 +291,11 @@ func (db *DB[T]) read(key string) (DbData[T], error) {
 	if valueObj, exists := db.data[key]; exists {
 		if db.IsExpired(key) {
 			db.deleteEntry(key)
-			return DbData[T]{}, errors.New("ENTRY EXPIRED")
+			return DbData[T]{}, dbError.EntryExpired("")
 		}
 		return valueObj, nil
 	}
-	return DbData[T]{}, errors.New("KEY NOT FOUND")
+	return DbData[T]{}, dbError.KeyNotFound("")
 }
 func (db *DB[T]) IsExpired(key string) bool {
 	if db.data[key].Ttl == "" {
@@ -318,7 +316,7 @@ func (db *DB[T]) PrintValue(key string) {
 func (db *DB[T]) isValidJson(data DbData[T]) (float64, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
-		return 0, fmt.Errorf("FAILED TO CONVERT MAP TO JSON: %w", err)
+		return 0, dbError.FailedToConvertMapToJson(fmt.Sprintf("%s", err))
 	}
 	// fmt.Printf("Size in kilobytes: %d\n", len(jsonData))
 	// fmt.Printf("Size in kilobytes: %.2f KB\n", BytesToKB(len(jsonData)))
@@ -326,14 +324,14 @@ func (db *DB[T]) isValidJson(data DbData[T]) (float64, error) {
 	// fmt.Printf("Size in kilobytes: %.2f KB\n", BytesToKB(len(jsonData)))
 	jsonSize := BytesToKB(len(jsonData))
 	if jsonSize > EntrySizeLimitMB*1024 {
-		return jsonSize, fmt.Errorf("JSON size exceeds the 16 KB limit")
+		return jsonSize, dbError.JsonSizeExceedsLimit("")
 	}
 	return jsonSize, nil
 }
 func (db *DB[T]) checkAvailableSpace(entrySizeKB float64) (bool, float64, error) {
 	FileSizekB, err := db.localStorage.getFileSizeInKB()
 	if err != nil {
-		return false, 0, fmt.Errorf("FAILED TO GET CURRENT FILE SIZE: %w", err)
+		return false, 0, dbError.FailedToGetFileSize("")
 	}
 	// fmt.Printf("File Size Current :%.2f mb\n", kbToMb(FileSizekB))
 	if FileSizekB+entrySizeKB > StorageLimitMB*1024 {
@@ -347,7 +345,7 @@ func (db *DB[T]) Close() error {
 
 	if db.closed {
 		db.rwLock.Unlock()
-		return errors.New("DB is already closed")
+		return dbError.DBAlreadyClosed("")
 	}
 
 	db.closed = true
