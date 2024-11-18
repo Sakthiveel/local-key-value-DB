@@ -37,9 +37,13 @@ func NewLocalStorage[T any](fileName string, dir string, dataToLoad *map[string]
 		return nil, err
 	}
 	if !fileExists {
-		localStorage.createFile()
+		if err := localStorage.createFile(); err != nil {
+			return nil, dbError.FailedToCreateFile("")
+		}
 	} else {
-		localStorage.Load(dataToLoad)
+		if err := localStorage.Load(dataToLoad); err != nil {
+			return nil, dbError.FailedToLoadFile("")
+		}
 	}
 	// Acquire lock immediately when creating database
 	if err := localStorage.acquireLock(); err != nil {

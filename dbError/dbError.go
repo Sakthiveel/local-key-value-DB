@@ -139,3 +139,7 @@ func FailedToCloseLockedFile(info string) error {
 func FailedToGetFileInfo(info string) error {
 	return NewDBError("Failed to get file info", info)
 }
+
+func FailedToLoadFile(info string) error {
+	return NewDBError("Faield to load file", info)
+}
