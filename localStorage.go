@@ -40,16 +40,17 @@ func NewLocalStorage[T any](fileName string, dir string, dataToLoad *map[string]
 		if err := localStorage.createFile(); err != nil {
 			return nil, dbError.FailedToCreateFile("")
 		}
+		if err := localStorage.acquireLock(); err != nil {
+			return nil, dbError.FailedToAcquireLock(fmt.Sprintf("%s", err))
+		}
 	} else {
+		if err := localStorage.acquireLock(); err != nil {
+			return nil, dbError.FailedToAcquireLock(fmt.Sprintf("%s", err))
+		}
 		if err := localStorage.Load(dataToLoad); err != nil {
 			return nil, dbError.FailedToLoadFile("")
 		}
 	}
-	// Acquire lock immediately when creating database
-	if err := localStorage.acquireLock(); err != nil {
-		return nil, dbError.FailedToAcquireLock(fmt.Sprintf("%s", err))
-	}
-	// or else throw error
 	return localStorage, nil
 }
 
