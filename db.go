@@ -178,6 +178,9 @@ func (db *DB[T]) create(key string, value DbData[T]) error {
 	}
 
 	if _, exists := db.data[key]; exists {
+		if db.IsExpired(key) {
+			db.deleteEntry(key)
+		}
 		return errors.New("ENTRY ALREADY EXISTS")
 	}
 	valueSize, valErr := db.isValidJson(db.data[key])
@@ -216,6 +219,9 @@ func (db *DB[T]) batchCreate(batchData map[string]DbData[T]) error {
 		}
 
 		if _, exists := db.data[key]; exists {
+			if db.IsExpired(key) {
+				db.deleteEntry(key)
+			}
 			return fmt.Errorf("ENTRY ALREADY EXISTS %s", key)
 		}
 		_, valErr := db.isValidJson(batchData[key])
@@ -268,28 +274,25 @@ func (db *DB[T]) Delete(key string) operationResult[T] {
 	return <-op.response
 }
 
-func (db *DB[T]) delete(key string) (bool, error) {
+func (db *DB[T]) delete(key string) error {
 	if _, exists := db.data[key]; exists {
 		isExpired := db.IsExpired(key)
-		if isExpired {
-			return false, errors.New("ENTRY EXPIRED")
+		err := db.deleteEntry(key)
+		if err != nil && !isExpired {
+			return err
+		} else if isExpired {
+			return errors.New("ENTRY EXPIRED")
 		}
-		delete(db.data, key)
-		err := db.localStorage.Sync(db.data)
-		if err != nil {
-			db.localStorage.Load(&db.data) // rollback , reloading file in to memory
-			return false, err
-		}
-
-		return true, nil
+		return err
 	}
-	return false, errors.New("KEY NOT FOUND")
+	return errors.New("KEY NOT FOUND")
 }
 
 func (db *DB[T]) read(key string) (DbData[T], error) {
 
 	if valueObj, exists := db.data[key]; exists {
 		if db.IsExpired(key) {
+			db.deleteEntry(key)
 			return DbData[T]{}, errors.New("ENTRY EXPIRED")
 		}
 		return valueObj, nil
@@ -387,4 +390,14 @@ func (db *DB[T]) cleanupExpiredKeys() {
 		}
 	}
 	db.localStorage.Sync(db.data)
+}
+func (db *DB[T]) deleteEntry(key string) error {
+	entry := db.data[key]
+	delete(db.data, key)
+	err := db.localStorage.Sync(db.data)
+	if err != nil {
+		// rollback
+		db.data[key] = entry
+	}
+	return err
 }
