@@ -323,7 +323,7 @@ func (db *DB[T]) isValidJson(data DbData[T]) (float64, error) {
 	// fmt.Printf("Entry Value: %+v\n", data)
 	// fmt.Printf("Size in kilobytes: %.2f KB\n", BytesToKB(len(jsonData)))
 	jsonSize := BytesToKB(len(jsonData))
-	if jsonSize > EntrySizeLimitMB*1024 {
+	if jsonSize > EntrySizeLimitMB*KB {
 		return jsonSize, dbError.JsonSizeExceedsLimit("")
 	}
 	return jsonSize, nil
@@ -334,7 +334,7 @@ func (db *DB[T]) checkAvailableSpace(entrySizeKB float64) (bool, float64, error)
 		return false, 0, dbError.FailedToGetFileSize("")
 	}
 	// fmt.Printf("File Size Current :%.2f mb\n", kbToMb(FileSizekB))
-	if FileSizekB+entrySizeKB > StorageLimitMB*1024 {
+	if FileSizekB+entrySizeKB > StorageLimitMB*KB {
 		return false, FileSizekB, nil
 	}
 

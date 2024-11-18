@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+const (
+	KB = 1024
+	MB = KB * 1024
+)
+
 type DbData[T any] struct {
 	Value      T         `json:"value"`
 	Ttl        string    `json:"ttl"` // if string empty means no expiration time
@@ -70,11 +75,11 @@ func GenerateRandomKey() string {
 }
 
 func BytesToKB(sizeInBytes int) float64 {
-	return float64(sizeInBytes) / 1024.0
+	return float64(sizeInBytes) / float64(KB)
 }
 
 func kbToMb(sizeInKb float64) float64 {
-	return sizeInKb / 1024.0
+	return sizeInKb / float64(KB)
 }
 
 func ValidateAndFixJSONFilename(filename string) (string, error) {

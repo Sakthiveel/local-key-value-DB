@@ -166,7 +166,7 @@ func (ls *LocalStorage[T]) getFileSizeInKB() (float64, error) {
 
 	fileSizeBytes := fileInfo.Size()
 
-	fileSizeKB := float64(fileSizeBytes) / 1024
+	fileSizeKB := float64(fileSizeBytes) / float64(KB)
 
 	// fmt.Printf("File Size in Kb %.2f", fileSizeKB)
 
