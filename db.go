@@ -19,6 +19,8 @@ const EntrySizeLimitMB = 16
 
 const StorageLimitMB = 1024
 
+const cleanpInterval = 2 * time.Second
+
 type operationResult[T any] struct {
 	err   error
 	value DbData[T]
@@ -31,14 +33,15 @@ type operation[T any] struct {
 	response  chan operationResult[T]
 }
 type DB[T any] struct {
-	localStorage *LocalStorage[T]
-	data         map[string]DbData[T]
-	writeOps     chan operation[T]
-	readOps      chan operation[T]
-	rwLock       sync.RWMutex
-	wg           sync.WaitGroup // To track ongoing operations
-	closed       bool           // To signal when DB is closing
-	closeCh      chan struct{}  // To signal all goroutines to stop
+	localStorage  *LocalStorage[T]
+	data          map[string]DbData[T]
+	writeOps      chan operation[T]
+	readOps       chan operation[T]
+	rwLock        sync.RWMutex
+	wg            sync.WaitGroup // To track ongoing operations
+	closed        bool           // To signal when DB is closing
+	closeCh       chan struct{}  // To signal all goroutines to stop
+	stopCleanupCh chan struct{}  // Signal to stop the cleanup workercleann
 }
 
 func NewDB[T any](fileName string, dir string) (*DB[T], error) {
@@ -48,16 +51,18 @@ func NewDB[T any](fileName string, dir string) (*DB[T], error) {
 		return nil, err
 	}
 	db := &DB[T]{
-		data:         loadedData,
-		localStorage: localStorage,
-		writeOps:     make(chan operation[T], 100),
-		readOps:      make(chan operation[T], 100),
-		closeCh:      make(chan struct{}),
-		closed:       false,
+		data:          loadedData,
+		localStorage:  localStorage,
+		writeOps:      make(chan operation[T], 100),
+		readOps:       make(chan operation[T], 100),
+		closeCh:       make(chan struct{}),
+		closed:        false,
+		stopCleanupCh: make(chan struct{}),
 	}
 
 	go db.writeWorker()
 	go db.readWorker()
+	go db.startCleanupWorker()
 
 	return db, nil
 }
@@ -291,7 +296,6 @@ func (db *DB[T]) read(key string) (DbData[T], error) {
 	}
 	return DbData[T]{}, errors.New("KEY NOT FOUND")
 }
-
 func (db *DB[T]) IsExpired(key string) bool {
 	if db.data[key].Ttl == "" {
 		return false
@@ -346,6 +350,8 @@ func (db *DB[T]) Close() error {
 	db.closed = true
 	db.rwLock.Unlock()
 
+	close(db.stopCleanupCh)
+
 	// Close channels - any existing operations in the channels
 	// will still be processed.
 	close(db.writeOps)
@@ -354,4 +360,31 @@ func (db *DB[T]) Close() error {
 	db.wg.Wait()
 
 	return db.localStorage.releaseLock()
+}
+
+func (db *DB[T]) startCleanupWorker() {
+	db.wg.Add(1)
+	defer db.wg.Done()
+
+	ticker := time.NewTicker(cleanpInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			db.cleanupExpiredKeys()
+		case <-db.stopCleanupCh:
+			return
+		}
+	}
+}
+
+func (db *DB[T]) cleanupExpiredKeys() {
+	db.rwLock.Lock()
+	defer db.rwLock.Unlock()
+	for key := range db.data {
+		if db.IsExpired(key) {
+			delete(db.data, key)
+		}
+	}
+	db.localStorage.Sync(db.data)
 }
