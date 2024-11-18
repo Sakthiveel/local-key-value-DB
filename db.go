@@ -36,6 +36,9 @@ type DB[T any] struct {
 	writeOps     chan operation[T]
 	readOps      chan operation[T]
 	rwLock       sync.RWMutex
+	wg           sync.WaitGroup // To track ongoing operations
+	closed       bool           // To signal when DB is closing
+	closeCh      chan struct{}  // To signal all goroutines to stop
 }
 
 func NewDB[T any](fileName string, dir string) (*DB[T], error) {
@@ -49,6 +52,8 @@ func NewDB[T any](fileName string, dir string) (*DB[T], error) {
 		localStorage: localStorage,
 		writeOps:     make(chan operation[T], 100),
 		readOps:      make(chan operation[T], 100),
+		closeCh:      make(chan struct{}),
+		closed:       false,
 	}
 
 	go db.writeWorker()
@@ -58,18 +63,30 @@ func NewDB[T any](fileName string, dir string) (*DB[T], error) {
 }
 
 func (db *DB[T]) Create(key string, value DbData[T]) operationResult[T] {
+	db.rwLock.RLock()
+	if db.closed {
+		db.rwLock.RUnlock()
+		println("DB Closed bro")
+		return operationResult[T]{err: errors.New("DATABASE ALREADY CLOSED")}
+	}
+	db.rwLock.RUnlock()
 	op := operation[T]{
 		action:   "create",
 		key:      key,
 		value:    value,
 		response: make(chan operationResult[T], 1),
 	}
-
 	db.writeOps <- op
 	return <-op.response
 }
 
 func (db *DB[T]) Read(key string) operationResult[T] {
+	db.rwLock.RLock()
+	if db.closed {
+		db.rwLock.RUnlock()
+		return operationResult[T]{err: fmt.Errorf("DATABASE ALREADY CLOSED")}
+	}
+	db.rwLock.RUnlock()
 	op := operation[T]{
 		action:   "read",
 		key:      key,
@@ -81,6 +98,12 @@ func (db *DB[T]) Read(key string) operationResult[T] {
 }
 
 func (db *DB[T]) BatchCreate(batchData map[string]DbData[T]) operationResult[T] {
+	db.rwLock.RLock()
+	if db.closed {
+		db.rwLock.RUnlock()
+		return operationResult[T]{err: fmt.Errorf("DATABASE ALREADY CLOSED")}
+	}
+	db.rwLock.RUnlock()
 	op := operation[T]{
 		action:    "batchCreate",
 		batchData: batchData,
@@ -92,11 +115,12 @@ func (db *DB[T]) BatchCreate(batchData map[string]DbData[T]) operationResult[T] 
 }
 
 func (db *DB[T]) writeWorker() {
+	db.wg.Add(1)
+	defer db.wg.Done()
 	for op := range db.writeOps {
 		var result operationResult[T]
-		fmt.Printf("Opeartion type %s", op.action)
-
 		db.rwLock.Lock()
+
 		switch op.action {
 		case "create":
 			err := db.create(op.key, op.value)
@@ -116,13 +140,14 @@ func (db *DB[T]) writeWorker() {
 		}
 
 		db.rwLock.Unlock()
-
 		op.response <- result
 		close(op.response)
 	}
 }
 
 func (db *DB[T]) readWorker() {
+	db.wg.Add(1)
+	defer db.wg.Done()
 	for op := range db.readOps {
 		var result operationResult[T]
 
@@ -222,6 +247,12 @@ func (db *DB[T]) batchCreate(batchData map[string]DbData[T]) error {
 }
 
 func (db *DB[T]) Delete(key string) operationResult[T] {
+	db.rwLock.RLock()
+	if db.closed {
+		db.rwLock.RUnlock()
+		return operationResult[T]{err: fmt.Errorf("DATABASE ALREADY CLOSED")}
+	}
+	db.rwLock.RUnlock()
 	op := operation[T]{
 		action:   "delete",
 		key:      key,
@@ -251,6 +282,7 @@ func (db *DB[T]) delete(key string) (bool, error) {
 }
 
 func (db *DB[T]) read(key string) (DbData[T], error) {
+
 	if valueObj, exists := db.data[key]; exists {
 		if db.IsExpired(key) {
 			return DbData[T]{}, errors.New("ENTRY EXPIRED")
@@ -258,13 +290,6 @@ func (db *DB[T]) read(key string) (DbData[T], error) {
 		return valueObj, nil
 	}
 	return DbData[T]{}, errors.New("KEY NOT FOUND")
-}
-
-func (db *DB[T]) Close() error {
-	if db.localStorage != nil {
-		return db.localStorage.releaseLock()
-	}
-	return nil
 }
 
 func (db *DB[T]) IsExpired(key string) bool {
@@ -309,4 +334,24 @@ func (db *DB[T]) checkAvailableSpace(entrySizeKB float64) (bool, float64, error)
 	}
 
 	return true, FileSizekB, nil
+}
+func (db *DB[T]) Close() error {
+	db.rwLock.Lock()
+
+	if db.closed {
+		db.rwLock.Unlock()
+		return errors.New("DB is already closed")
+	}
+
+	db.closed = true
+	db.rwLock.Unlock()
+
+	// Close channels - any existing operations in the channels
+	// will still be processed.
+	close(db.writeOps)
+	close(db.readOps)
+
+	db.wg.Wait()
+
+	return db.localStorage.releaseLock()
 }

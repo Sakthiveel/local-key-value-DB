@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -273,4 +275,89 @@ func TestConcurrentCreateRead(t *testing.T) {
 	fmt.Printf("The map size is %v\n", len(db.data))
 
 	fmt.Printf("Total Time taken to run %v concurrent reads and writes: %s\n", numOps, totalDuration)
+}
+
+func TestDBClose(t *testing.T) {
+	var wg sync.WaitGroup
+	count := 5
+	db, err := NewDB[string]("dbclose"+GenerateRandomKey(), "")
+	if err != nil {
+		t.Fatalf("Failed to create DB: %v", err)
+	}
+
+	var successOps, failedOps, inProgressOps atomic.Int32
+	var closeOnce sync.Once
+
+	// Channel to signal operations that were queued before close
+	operationsBeforeClose := make(chan struct{})
+
+	for i := 1; i <= count; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			key := fmt.Sprintf("%d", i)
+			entry := "value_" + strconv.Itoa(i)
+
+			if i == count/2 { // Close DB halfway through
+				closeOnce.Do(func() {
+					// Signal that operations before this point should complete
+					close(operationsBeforeClose)
+					// Small delay to ensure some operations are in-flight
+					time.Sleep(10 * time.Millisecond)
+					if err := db.Close(); err != nil {
+						t.Errorf("Failed to close DB: %v", err)
+					}
+				})
+			}
+
+			// Mark operation as "in progress" before checking DB closed state
+			select {
+			case <-operationsBeforeClose:
+				// Operation was queued before close signal
+				inProgressOps.Add(1)
+			default:
+				// Operation attempted after close signal
+			}
+
+			// Perform Create operation
+			result := db.Create(key, NewDbData(entry, ""))
+
+			if result.err != nil {
+				if strings.Contains(result.err.Error(), "DATABASE ALREADY CLOSED") {
+					failedOps.Add(1)
+				} else {
+					t.Errorf("Unexpected error for key %s: %v", key, result.err)
+				}
+			} else {
+				successOps.Add(1)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Log detailed statistics
+	t.Logf("Operations - Total: %d, Successful: %d, Failed: %d, In-Progress at Close: %d",
+		count, successOps.Load(), failedOps.Load(), inProgressOps.Load())
+
+	// Verify results
+	if successOps.Load()+failedOps.Load() != int32(count) {
+		t.Errorf("Expected %d total operations, got %d",
+			count, successOps.Load()+failedOps.Load())
+	}
+	// Verify in-progress operations completed
+	if successOps.Load() < inProgressOps.Load() {
+		t.Errorf("Some in-progress operations failed: "+
+			"In-progress: %d, Successful: %d",
+			inProgressOps.Load(), successOps.Load())
+	}
+
+	// Verify some operations failed after close
+	if failedOps.Load() == 0 {
+		t.Error("Expected some operations to fail after close")
+	}
+
+	// Verify DB is fully closed
+	finalResult := db.Read("1")
+	require.ErrorContains(t, finalResult.err, "DATABASE ALREADY CLOSED")
 }
