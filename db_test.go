@@ -111,7 +111,7 @@ func TestTTLChecking(t *testing.T) {
 	require.Equal(t, entry, res_2.value)
 	time.Sleep(3 * time.Second)
 	res_3 := db.Read(key)
-	require.ErrorContains(t, res_3.err, dbError.EntryExpired("").Error())
+	require.ErrorContains(t, res_3.err, dbError.KeyExpired("").Error())
 	db.Close()
 }
 
