@@ -173,21 +173,11 @@ func (db *DB[T]) readWorker() {
 }
 
 func (db *DB[T]) create(key string, value DbData[T]) error {
-	if len(key) > 32 {
-		return dbError.KeySizeExceedsLimit(32, "")
+	entrySize, entryErr := db.isEntryValid(key, value)
+	if entryErr != nil {
+		return entryErr
 	}
-
-	if _, exists := db.data[key]; exists {
-		if db.IsExpired(key) {
-			db.deleteEntry(key)
-		}
-		return dbError.EntryAlreadyExists("")
-	}
-	valueSize, valErr := db.isValidJson(db.data[key])
-	if valErr != nil {
-		return valErr
-	}
-	isSpaceAvailable, _, spaceErr := db.checkAvailableSpace(valueSize)
+	isSpaceAvailable, _, spaceErr := db.checkAvailableSpace(entrySize)
 	if spaceErr != nil {
 		return spaceErr
 	}
@@ -214,18 +204,9 @@ func (db *DB[T]) batchCreate(batchData map[string]DbData[T]) error {
 		return dbError.BatchLimitCountExceeds("")
 	}
 	for key := range batchData {
-		if len(key) > 32 {
-			return dbError.KeySizeExceedsLimit(32, "")
-		}
-		if _, exists := db.data[key]; exists {
-			if db.IsExpired(key) {
-				db.deleteEntry(key)
-			}
-			return dbError.EntryAlreadyExists(fmt.Sprintf("key : %s", key))
-		}
-		_, valErr := db.isValidJson(batchData[key])
-		if valErr != nil {
-			return valErr
+		_, entryErr := db.isEntryValid(key, batchData[key])
+		if entryErr != nil {
+			return entryErr
 		}
 	}
 	jsonBatchedData, jsonErr := json.Marshal(batchData)
@@ -398,4 +379,20 @@ func (db *DB[T]) deleteEntry(key string) error {
 		db.data[key] = entry
 	}
 	return err
+}
+func (db *DB[T]) isEntryValid(key string, value DbData[T]) (float64, error) {
+	if len(key) > 32 {
+		return 0, dbError.KeySizeExceedsLimit(32, "")
+	}
+	if _, exists := db.data[key]; exists {
+		if db.IsExpired(key) {
+			db.deleteEntry(key) // no need to pass the error (will get roll back)
+		}
+		return 0, dbError.EntryAlreadyExists(fmt.Sprintf("key : %s", key))
+	}
+	valueSize, valErr := db.isValidJson(value)
+	if valErr != nil {
+		return 0, valErr
+	}
+	return valueSize, nil
 }
