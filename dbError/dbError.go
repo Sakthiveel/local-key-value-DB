@@ -48,6 +48,10 @@ func EntryExpired(info string) error {
 	return NewDBError("Entry Expired", info)
 }
 
+func KeyExpired(info string) error {
+	return NewDBError("Key Expired", info)
+}
+
 func InvalidFileName(info string) error {
 	return NewDBError("Invalid File Name", info)
 }

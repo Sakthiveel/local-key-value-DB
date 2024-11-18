@@ -260,7 +260,7 @@ func (db *DB[T]) delete(key string) error {
 		if err != nil && !isExpired {
 			return err
 		} else if isExpired {
-			return dbError.EntryExpired("")
+			return dbError.KeyExpired("")
 		}
 		return err
 	}
@@ -272,7 +272,7 @@ func (db *DB[T]) read(key string) (DbData[T], error) {
 	if valueObj, exists := db.data[key]; exists {
 		if db.IsExpired(key) {
 			db.deleteEntry(key)
-			return DbData[T]{}, dbError.EntryExpired("")
+			return DbData[T]{}, dbError.KeyExpired("")
 		}
 		return valueObj, nil
 	}
