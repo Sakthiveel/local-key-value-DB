@@ -68,7 +68,7 @@ func FailedToAcquireLock(info string) error {
 	return NewDBError("Failed to acquire lock", info)
 }
 func BatchLimitCountExceeds(info string) error {
-	return NewDBError("Batch operation exceeds allowed maxium allowed entries can be batched together", info)
+	return NewDBError("Batch operation exceeds allowed maxium allowed entries", info)
 }
 func BatchSizeLimitCrossed(info string) error {
 	return NewDBError("Batch size exceeds storage limit", info)
