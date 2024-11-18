@@ -9,7 +9,7 @@ type DBError struct {
 }
 
 func (e *DBError) Error() string {
-	return fmt.Sprintf("%s %s", e.Message, e.AdditionalInfo)
+	return fmt.Sprintf("%s , %s", e.Message, e.AdditionalInfo)
 }
 
 // Factory functions for common errors

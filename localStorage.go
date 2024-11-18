@@ -6,6 +6,7 @@ import (
 	"local-key-value-DB/dbError"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -15,20 +16,18 @@ type LocalStorage[T any] struct {
 }
 
 func NewLocalStorage[T any](fileName string, dir string, dataToLoad *map[string]DbData[T]) (*LocalStorage[T], error) {
-	if dir == "" {
+	if len(strings.TrimSpace(dir)) == 0 {
 		curDir, osErr := os.Getwd()
 		if osErr != nil {
 			return nil, osErr
 		}
 		dir = curDir
 	}
-	if fileName == "" {
-		fileName = "default_file.json"
+	fileName, fileErr := ValidateAndFixJSONFilename(fileName)
+	if fileErr != nil {
+		return nil, fileErr
 	}
-	if !IsAlphanumeric(fileName) { // todo: temporary check , exclude os reserved keyword
-		return nil, dbError.InvalidFileName("")
-	}
-	filePath := filepath.Join(dir, fileName+".json")
+	filePath := filepath.Join(dir, fileName)
 	localStorage := &LocalStorage[T]{
 		filePath: filePath,
 	}

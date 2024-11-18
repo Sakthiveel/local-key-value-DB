@@ -21,11 +21,16 @@ func TestFileNameValidation(t *testing.T) {
 		".gitignore",
 		"folder/file",
 		"test.go",
+		"test?.json",
+		"file*.json",
+		"aux.json",
+		"verylongfilenameverylongfilenameverylongfilenameverylongfilenameverylongfilenameverylongfilenameverylongfilenameverylongfilenameverylongfilenameverylongfilename.json",
+		"file<name>.json",
 	}
 
 	for _, file := range testFiles {
 		_, err := NewDB[TestVal](file, "")
-		require.Equal(t, err, dbError.InvalidFileName(""))
+		require.ErrorContains(t, err, dbError.InvalidFileName("").Error())
 	}
 }
 
