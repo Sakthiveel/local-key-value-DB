@@ -2,10 +2,11 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
+	"local-key-value-DB/dbError"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -15,20 +16,18 @@ type LocalStorage[T any] struct {
 }
 
 func NewLocalStorage[T any](fileName string, dir string, dataToLoad *map[string]DbData[T]) (*LocalStorage[T], error) {
-	if dir == "" {
+	if len(strings.TrimSpace(dir)) == 0 {
 		curDir, osErr := os.Getwd()
 		if osErr != nil {
 			return nil, osErr
 		}
 		dir = curDir
 	}
-	if fileName == "" {
-		fileName = "default_file.json"
+	fileName, fileErr := ValidateAndFixJSONFilename(fileName)
+	if fileErr != nil {
+		return nil, fileErr
 	}
-	if !IsAlphanumeric(fileName) { // todo: temporary check , exclude os reserved keyword
-		return nil, errors.New("INVALID FILE NAME")
-	}
-	filePath := filepath.Join(dir, fileName+".json")
+	filePath := filepath.Join(dir, fileName)
 	localStorage := &LocalStorage[T]{
 		filePath: filePath,
 	}
@@ -38,15 +37,20 @@ func NewLocalStorage[T any](fileName string, dir string, dataToLoad *map[string]
 		return nil, err
 	}
 	if !fileExists {
-		localStorage.createFile()
+		if err := localStorage.createFile(); err != nil {
+			return nil, dbError.FailedToCreateFile("")
+		}
+		if err := localStorage.acquireLock(); err != nil {
+			return nil, dbError.FailedToAcquireLock(fmt.Sprintf("%s", err))
+		}
 	} else {
-		localStorage.Load(dataToLoad)
+		if err := localStorage.acquireLock(); err != nil {
+			return nil, dbError.FailedToAcquireLock(fmt.Sprintf("%s", err))
+		}
+		if err := localStorage.Load(dataToLoad); err != nil {
+			return nil, dbError.FailedToLoadFile("")
+		}
 	}
-	// Acquire lock immediately when creating database
-	if err := localStorage.acquireLock(); err != nil {
-		return nil, fmt.Errorf("FAILED TO ACQUIRE LOCK: %w", err)
-	}
-	// or else throw error
 	return localStorage, nil
 }
 
@@ -56,16 +60,16 @@ func (ls *LocalStorage[T]) createFile() error {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		err := os.MkdirAll(dir, os.ModePerm)
 		if err != nil {
-			return fmt.Errorf("FAILED TO CREATE DIRECTORY: %w", err)
+			return dbError.FailedToCreateDirectory(fmt.Sprintf("%s", err))
 		}
 	} else if err != nil {
-		return fmt.Errorf("FAILED TO CHECK DIRECTORY: %w", err)
+		return dbError.FailedToCheckDir(fmt.Sprintf("%s", err))
 	}
 
 	// fmt.Println("Creating file at:", ls.filePath)
 	file, err := os.Create(ls.filePath)
 	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
+		return dbError.FailedToCreateFile(fmt.Sprintf("%s", err))
 	}
 	defer file.Close()
 
@@ -77,7 +81,7 @@ func (ls *LocalStorage[T]) fileExists(dir string) (bool, error) {
 	_, dirErr := os.Stat(dir)
 
 	if os.IsNotExist(dirErr) {
-		return false, fmt.Errorf("DIRECTORY NOT EXIST")
+		return false, dbError.DirectoryNotExists("")
 	}
 
 	_, err := os.Stat(ls.filePath)
@@ -89,7 +93,7 @@ func (ls *LocalStorage[T]) fileExists(dir string) (bool, error) {
 		return false, nil
 	}
 
-	return false, fmt.Errorf("FAILED TO CHECK IF FILE EXISTS: %w", err)
+	return false, dbError.FailedToCheckFileExists(fmt.Sprintf("%s", err))
 }
 
 func (ls *LocalStorage[T]) Sync(data map[string]DbData[T]) error {
@@ -127,7 +131,7 @@ func (ls *LocalStorage[T]) acquireLock() error {
 		ls.lockFile.Close()
 		ls.lockFile = nil
 		if err == syscall.EWOULDBLOCK {
-			return fmt.Errorf("FILE IS LOCKED BY ANOTHER PROCESS")
+			return dbError.FileIsLockedByAnotherProcess("")
 		}
 		return err
 	}
@@ -142,12 +146,12 @@ func (ls *LocalStorage[T]) releaseLock() error {
 
 	err := syscall.Flock(int(ls.lockFile.Fd()), syscall.LOCK_UN)
 	if err != nil {
-		return fmt.Errorf("FAILED TO RELEASE LOCK: %w", err)
+		return dbError.FailedToReleaseLock(fmt.Sprintf("%s", err))
 	}
 
 	err = ls.lockFile.Close()
 	if err != nil {
-		return fmt.Errorf("FAILED TO CLOSE LOCK FILE: %w", err)
+		return dbError.FailedToCloseLockedFile(fmt.Sprintf("%s", err))
 	}
 
 	ls.lockFile = nil
@@ -157,12 +161,12 @@ func (ls *LocalStorage[T]) releaseLock() error {
 func (ls *LocalStorage[T]) getFileSizeInKB() (float64, error) {
 	fileInfo, err := os.Stat(ls.filePath)
 	if err != nil {
-		return 0, fmt.Errorf("FAILED TO GET FILE INFO: %w", err)
+		return 0, dbError.FailedToGetFileInfo(fmt.Sprintf("%s", err))
 	}
 
 	fileSizeBytes := fileInfo.Size()
 
-	fileSizeKB := float64(fileSizeBytes) / 1024
+	fileSizeKB := float64(fileSizeBytes) / float64(KB)
 
 	// fmt.Printf("File Size in Kb %.2f", fileSizeKB)
 

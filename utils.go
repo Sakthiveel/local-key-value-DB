@@ -1,10 +1,17 @@
 package main
 
 import (
+	"local-key-value-DB/dbError"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
+)
+
+const (
+	KB = 1024
+	MB = KB * 1024
 )
 
 type DbData[T any] struct {
@@ -68,9 +75,53 @@ func GenerateRandomKey() string {
 }
 
 func BytesToKB(sizeInBytes int) float64 {
-	return float64(sizeInBytes) / 1024.0
+	return float64(sizeInBytes) / float64(KB)
 }
 
 func kbToMb(sizeInKb float64) float64 {
-	return sizeInKb / 1024.0
+	return sizeInKb / float64(KB)
+}
+
+func ValidateAndFixJSONFilename(filename string) (string, error) {
+	filename = strings.TrimSpace(filename)
+
+	if len(filename) == 0 {
+		return "default_file.json", nil
+	} else if len(filename) > 24 {
+		return "", dbError.InvalidFileName("file name exceeds max limit of 24 characters")
+	}
+
+	invalidCharPattern := regexp.MustCompile(`[<>:"/\\|?*\x00-\x1F]`)
+	if invalidCharPattern.MatchString(filename) {
+		return "", dbError.InvalidFileName("contains invalid characters")
+	}
+
+	// todo: need to check  more os specific reserved keywords
+	reservedNames := []string{"con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9"}
+	baseName := strings.ToLower(strings.TrimSuffix(filename, filepath.Ext(filename)))
+	for _, reserved := range reservedNames {
+		if baseName == reserved {
+			return "", dbError.InvalidFileName("fileName is a reserved name")
+		}
+	}
+
+	ext := filepath.Ext(filename)
+	if ext == ".json" {
+		nameWithoutExt := strings.TrimSuffix(filename, ext)
+		if strings.Contains(nameWithoutExt, ".") {
+			return "", dbError.InvalidFileName("contains extra dot")
+		}
+		return filename, nil
+	}
+
+	if ext != "" && ext != ".json" {
+		return "", dbError.InvalidFileName("no file extension or wrong extension.")
+	}
+
+	// todo: this check is necessary ?
+	if strings.Contains(filename, ".") {
+		return "", dbError.InvalidFileName("contains extra dot")
+	}
+
+	return filename + ".json", nil
 }
