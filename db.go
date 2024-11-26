@@ -37,11 +37,12 @@ type DB[T any] struct {
 	data          map[string]DbData[T]
 	writeOps      chan operation[T]
 	readOps       chan operation[T]
-	rwLock        sync.RWMutex
-	wg            sync.WaitGroup // To track ongoing operations
-	closed        bool           // To signal when DB is closing
-	closeCh       chan struct{}  // To signal all goroutines to stop
-	stopCleanupCh chan struct{}  // Signal to stop the cleanup workercleann
+	mu            sync.Mutex             // Protects access to the locks map
+	locks         map[string]*sync.Mutex // Per-key locks
+	wg            sync.WaitGroup         // To track ongoing operations
+	closed        bool                   // To signal when DB is closing
+	closeCh       chan struct{}          // To signal all goroutines to stop
+	stopCleanupCh chan struct{}          // Signal to stop the cleanup workercleann
 }
 
 func NewDB[T any](fileName string, dir string) (*DB[T], error) {
@@ -51,13 +52,14 @@ func NewDB[T any](fileName string, dir string) (*DB[T], error) {
 		return nil, err
 	}
 	db := &DB[T]{
-		data:          loadedData,
 		localStorage:  localStorage,
+		data:          loadedData,
 		writeOps:      make(chan operation[T], 100),
 		readOps:       make(chan operation[T], 100),
+		locks:         make(map[string]*sync.Mutex),
 		closeCh:       make(chan struct{}),
-		closed:        false,
 		stopCleanupCh: make(chan struct{}),
+		closed:        false,
 	}
 
 	go db.writeWorker()
@@ -67,14 +69,19 @@ func NewDB[T any](fileName string, dir string) (*DB[T], error) {
 	return db, nil
 }
 
+func (db *DB[T]) getLock(key string) *sync.Mutex {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if _, exists := db.locks[key]; !exists {
+		db.locks[key] = &sync.Mutex{}
+	}
+	return db.locks[key]
+}
+
 func (db *DB[T]) Create(key string, value DbData[T]) operationResult[T] {
-	db.rwLock.RLock()
 	if db.closed {
-		db.rwLock.RUnlock()
-		println("DB Closed bro")
 		return operationResult[T]{err: dbError.DBAlreadyClosed("")}
 	}
-	db.rwLock.RUnlock()
 	op := operation[T]{
 		action:   "create",
 		key:      key,
@@ -86,12 +93,9 @@ func (db *DB[T]) Create(key string, value DbData[T]) operationResult[T] {
 }
 
 func (db *DB[T]) Read(key string) operationResult[T] {
-	db.rwLock.RLock()
 	if db.closed {
-		db.rwLock.RUnlock()
 		return operationResult[T]{err: dbError.DBAlreadyClosed("")}
 	}
-	db.rwLock.RUnlock()
 	op := operation[T]{
 		action:   "read",
 		key:      key,
@@ -103,12 +107,9 @@ func (db *DB[T]) Read(key string) operationResult[T] {
 }
 
 func (db *DB[T]) BatchCreate(batchData map[string]DbData[T]) operationResult[T] {
-	db.rwLock.RLock()
 	if db.closed {
-		db.rwLock.RUnlock()
 		return operationResult[T]{err: dbError.DBAlreadyClosed("")}
 	}
-	db.rwLock.RUnlock()
 	op := operation[T]{
 		action:    "batchCreate",
 		batchData: batchData,
@@ -124,27 +125,27 @@ func (db *DB[T]) writeWorker() {
 	defer db.wg.Done()
 	for op := range db.writeOps {
 		var result operationResult[T]
-		db.rwLock.Lock()
+		entryLock := db.getLock(op.key)
+		entryLock.Lock()
 
 		switch op.action {
 		case "create":
 			err := db.create(op.key, op.value)
 			result = operationResult[T]{err: err}
-
 		case "batchCreate":
 			err := db.batchCreate(op.batchData)
 			result = operationResult[T]{err: err}
-
 		case "delete":
 			err := db.delete(op.key)
 			result = operationResult[T]{err: err}
-
+		case "update":
+			err := db.update(op.key, op.value)
+			result = operationResult[T]{err: err}
 		default:
 			err := dbError.UnkownOperation(op.action)
 			result = operationResult[T]{err: err}
 		}
-
-		db.rwLock.Unlock()
+		entryLock.Unlock()
 		op.response <- result
 		close(op.response)
 	}
@@ -155,8 +156,8 @@ func (db *DB[T]) readWorker() {
 	defer db.wg.Done()
 	for op := range db.readOps {
 		var result operationResult[T]
-
-		db.rwLock.RLock()
+		entryLock := db.getLock(op.key)
+		entryLock.Lock()
 		switch op.action {
 		case "read":
 			value, err := db.read(op.key)
@@ -165,8 +166,7 @@ func (db *DB[T]) readWorker() {
 			err := dbError.UnkownOperation(op.action)
 			result = operationResult[T]{err: err}
 		}
-		db.rwLock.RUnlock()
-
+		entryLock.Unlock()
 		op.response <- result
 		close(op.response)
 	}
@@ -237,12 +237,9 @@ func (db *DB[T]) batchCreate(batchData map[string]DbData[T]) error {
 	return nil
 }
 func (db *DB[T]) Delete(key string) operationResult[T] {
-	db.rwLock.RLock()
 	if db.closed {
-		db.rwLock.RUnlock()
 		return operationResult[T]{err: dbError.DatabaseAlreadyClose("")}
 	}
-	db.rwLock.RUnlock()
 	op := operation[T]{
 		action:   "delete",
 		key:      key,
@@ -322,15 +319,12 @@ func (db *DB[T]) checkAvailableSpace(entrySizeKB float64) (bool, float64, error)
 	return true, FileSizekB, nil
 }
 func (db *DB[T]) Close() error {
-	db.rwLock.Lock()
 
 	if db.closed {
-		db.rwLock.Unlock()
 		return dbError.DBAlreadyClosed("")
 	}
 
 	db.closed = true
-	db.rwLock.Unlock()
 
 	close(db.stopCleanupCh)
 
@@ -361,10 +355,11 @@ func (db *DB[T]) startCleanupWorker() {
 }
 
 func (db *DB[T]) cleanupExpiredKeys() {
-	db.rwLock.Lock()
-	defer db.rwLock.Unlock()
 	for key := range db.data {
 		if db.IsExpired(key) {
+			entryLock := db.getLock(key)
+			entryLock.Lock()
+			defer entryLock.Unlock()
 			delete(db.data, key)
 		}
 	}
@@ -395,4 +390,50 @@ func (db *DB[T]) isEntryValid(key string, value DbData[T]) (float64, error) {
 		return 0, valErr
 	}
 	return valueSize, nil
+}
+func (db *DB[T]) Update(key string, value DbData[T]) operationResult[T] {
+	if db.closed {
+		return operationResult[T]{err: dbError.DBAlreadyClosed("")}
+	}
+	op := operation[T]{
+		action:   "update",
+		key:      key,
+		value:    value,
+		response: make(chan operationResult[T], 1),
+	}
+	db.writeOps <- op
+	return <-op.response
+}
+
+func (db *DB[T]) update(key string, updatedVal DbData[T]) error {
+	_, entryExists := db.data[key]
+	if !entryExists {
+		return dbError.EntryNotExists("")
+	}
+	if db.IsExpired(key) {
+		delete(db.data, key)
+		return dbError.EntryExpired("")
+	}
+	entrySize, _ := db.isEntryValid(key, updatedVal)
+	// TODO: handle entryErr here
+	// if entryErr != nil && !errors.As(entryErr, dbError.EntryAlreadyExists("").Error()) {
+	// 	return entryErr
+	// }
+	isSpaceAvailable, _, spaceErr := db.checkAvailableSpace(entrySize)
+	if spaceErr != nil {
+		return spaceErr
+	}
+	if !isSpaceAvailable {
+		return dbError.NotAvailabeSpace("")
+	}
+	previousVal := db.data[key]
+	db.data[key] = updatedVal
+	err := db.localStorage.Sync(db.data)
+	if err != nil {
+		println("---------------Rollback---------------------")
+		db.data[key] = previousVal
+		return err
+	}
+
+	return nil
 }

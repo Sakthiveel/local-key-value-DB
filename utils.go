@@ -78,10 +78,6 @@ func BytesToKB(sizeInBytes int) float64 {
 	return float64(sizeInBytes) / float64(KB)
 }
 
-func kbToMb(sizeInKb float64) float64 {
-	return sizeInKb / float64(KB)
-}
-
 func ValidateAndFixJSONFilename(filename string) (string, error) {
 	filename = strings.TrimSpace(filename)
 
