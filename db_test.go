@@ -280,35 +280,6 @@ func TestConcurrentCreateRead(t *testing.T) {
 
 	fmt.Printf("Total Time taken to run %v concurrent reads and writes: %s\n", numOps, totalDuration)
 }
-
-func TestConcurrenty(t *testing.T) {
-	var wg sync.WaitGroup
-	numOps := 10
-	db, err := NewDB[Animals]("test_concurrency"+GenerateRandomKey(), "")
-
-	if err != nil {
-		panic(err)
-	}
-	db.Create("key1", AnimalEntry("godzilla", "japan", 0, ""))
-	for i := 1; i <= numOps; i++ {
-		wg.Add(i)
-		go func(i int) {
-			defer wg.Done()
-			readRes := db.Read("key1")
-			t.Log(readRes.value.Value.Age)
-			res := db.Update("key1", AnimalEntry("godzilla", "japan", readRes.value.Value.Age+1, ""))
-
-			if res.err != nil {
-				panic(res.err)
-			}
-
-		}(i)
-	}
-
-	wg.Wait()
-
-}
-
 func TestUpdate(t *testing.T) {
 	numOps := 500
 	db, err := NewDB[Animals]("test_concurrency"+GenerateRandomKey(), "")
