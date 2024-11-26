@@ -64,6 +64,10 @@ func UnkownOperation(info string) error {
 	return NewDBError("Unkown operation", info)
 }
 
+func EntryNotExists(info string) error {
+	return NewDBError("Entry not exists", info)
+}
+
 func EntryAlreadyExists(info string) error {
 	return NewDBError("Entry already exists", info)
 }
